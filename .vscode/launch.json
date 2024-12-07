@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run C++ with LLDB",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/main",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "lldb",  // Ensure this is lldb
+            "miDebuggerPath": "/usr/bin/lldb",  // Ensure this points to lldb
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for lldb",
+                    "text": "settings set target.debugger-use-mi 0",  // Disable MI mode
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}
