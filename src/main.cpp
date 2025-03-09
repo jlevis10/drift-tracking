@@ -32,11 +32,6 @@ vector<Detection> detectedBoxes; // Store the selected bounding box
 Detection selectedBox; // Store the selected bounding box
 
 void mouseCallback(int event, int x, int y, int flags, void* param);
-float calculateIoU(Detection& boxA, const Detection& boxB) {
-    int intersectionArea = (boxA.box & boxB.box).area(); // Area of intersection
-    int unionArea = boxA.box.area() + boxB.box.area() - intersectionArea; // Area of union
-    return static_cast<float>(intersectionArea) / unionArea; // IoU
-}
 vector<Detection> processOutputs(const cv::Mat& frame, const vector<cv::Mat>& outputs, const vector<int>& targetClasses);
 void drawBoundingBoxes(cv::Mat& frame, const vector<Detection>& detections, const vector<string>& classNames, const vector<int>& targetClasses);
 
@@ -44,12 +39,12 @@ int main() {
 
     // Model configuration
     //cv::dnn::Net net = cv::dnn::readNetFromONNX("/Users/jonahlevis/DRIFT/trackerV1/models/yolov5su.onnx");
-    cv::dnn::Net net = cv::dnn::readNetFromDarknet("/Users/jonahlevis/Desktop/yolo-test-cpp/src/yolov3.cfg","/Users/jonahlevis/Desktop/yolo-test-cpp/src/yolov3.weights");
+    cv::dnn::Net net = cv::dnn::readNetFromDarknet("/home/mealla/Documents/GitHub/drift-tracking/untracked-models/yolo-fastest-1.1-xl.cfg", "/home/mealla/Documents/GitHub/drift-tracking/untracked-models/yolo-fastest-1.1-xl.weights");
     net.setPreferableBackend(cv::dnn::DNN_BACKEND_DEFAULT);
     net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
     //net.setPreferableTarget(cv::dnn::DNN_TARGET_FP16);
 
-    cv::VideoCapture cap("/Users/jonahlevis/DRIFT/trackerV1/videos/IMG_4220.mp4");
+    cv::VideoCapture cap("/home/mealla/Documents/GitHub/drift-tracking/videos/IMG_4220.mp4");
 
     if (!cap.isOpened()) {
         std::cerr << "Error opening video file" << std::endl;
@@ -59,9 +54,9 @@ int main() {
     cv::Mat frame;
     bool boxSelected = false; // Flag to check if box is selected
     while (cap.read(frame)) {
-        cv::setMouseCallback("Frame", mouseCallback, nullptr);
+        //cv::setMouseCallback("Frame", mouseCallback, nullptr);
 
-        //cv::imshow("Frame", frame);
+        cv::imshow("Frame", frame);
         cv::resize(frame, frame, cv::Size(416, 416));  // YOLOv3 typically uses 416x416 input size
         cv::Mat blob = cv::dnn::blobFromImage(frame, 1/255.0, cv::Size(416, 416), cv::Scalar(0, 0, 0), true, false);
         net.setInput(blob);
@@ -85,6 +80,7 @@ int main() {
 
     return 0;
 }
+
 void mouseCallback(int event, int x, int y, int flags, void* param) {
     if (event == cv::EVENT_LBUTTONDOWN) {
         // Check if the click is inside any bounding box
@@ -123,51 +119,6 @@ float calculateIoU(const Detection& boxA, const Detection& boxB) {
 
 
 // Function to process network outputs and return the bounding boxes after NMS
-vector<Detection> _processOutputs(const cv::Mat& frame, const vector<cv::Mat>& outputs, const vector<int>& targetClasses) {
-    vector<int> classIds;
-    vector<float> confidences;
-    vector<cv::Rect> boxes;
-
-    // Iterate through outputs and extract boxes and class information
-    for (size_t i = 0; i < outputs.size(); ++i) {
-        float* data = (float*)outputs[i].data;
-        for (int j = 0; j < outputs[i].rows; ++j, data += outputs[i].cols) {
-            float confidence = data[4];
-            if (confidence >= CONFIDENCE_THRESHOLD) {
-                int classId = max_element(data + 5, data + outputs[i].cols) - (data + 5);
-                float score = data[5 + classId];
-
-                // Only process the target traffic-related classes
-                if (score >= CONFIDENCE_THRESHOLD && find(targetClasses.begin(), targetClasses.end(), classId) != targetClasses.end()) {
-                    int centerX = (int)(data[0] * frame.cols);
-                    int centerY = (int)(data[1] * frame.rows);
-                    int width = (int)(data[2] * frame.cols);
-                    int height = (int)(data[3] * frame.rows);
-                    int left = centerX - width / 2;
-                    int top = centerY - height / 2;
-
-                    classIds.push_back(classId);
-                    confidences.push_back(score);
-                    boxes.push_back(cv::Rect(left, top, width, height));
-                }
-            }
-        }
-    }
-
-    // Apply non-maximum suppression (NMS)
-    vector<int> indices;
-    cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, indices);
-
-    // Store the remaining bounding boxes and associated information in a vector of `Detection`
-    vector<Detection> detections;
-    for (size_t i = 0; i < indices.size(); ++i) {
-        int idx = indices[i];
-        detections.push_back({classIds[idx], confidences[idx], boxes[idx]});
-    }
-
-    return detections;
-}
-
 vector<Detection> processOutputs(const cv::Mat& frame, const vector<cv::Mat>& outputs, const vector<int>& targetClasses) {
     vector<int> classIds;
     vector<float> confidences;
@@ -234,39 +185,7 @@ vector<Detection> processOutputs(const cv::Mat& frame, const vector<cv::Mat>& ou
     return detections;
 }
 
-
 // Function to draw the bounding boxes on the frame
-void _drawBoundingBoxes(cv::Mat& frame, const std::vector<Detection>& detections, 
-                       const std::vector<std::string>& classNames, const std::vector<int>& targetClasses) {
-    
-
-    for (const auto& detection : detections) {
-        const cv::Rect& box = detection.box;
-        float iou = calculateIoU(selectedBox, detection);
-        // Determine color for the bounding box
-        cv::Scalar color = (boxSelected && iou) > 0.5 
-                           ? cv::Scalar(255, 0, 0) // Blue for selected boxes
-                           : cv::Scalar(0, 255, 0); // Green for others
-
-        
-        if (iou > 0.5) {
-            selectedBox = detection;
-        }
-        // Draw the bounding box
-        cv::rectangle(frame, box, color, 2);
-
-        // Prepare label for the bounding box
-        std::string label = cv::format("%.2f", detection.confidence);
-        label = classNames[targetClasses[detection.classId]] + ": " + label;
-
-        // Calculate the position to draw the label
-        int baseLine;
-        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-        int top = std::max(box.y, labelSize.height);
-        cv::putText(frame, label, cv::Point(box.x, top), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
-    }
-}
-
 void drawBoundingBoxes(cv::Mat& frame, const std::vector<Detection>& detections, 
                        const std::vector<std::string>& classNames, const std::vector<int>& targetClasses) {
     for (const auto& [id, detection] : trackedBoxes) {
@@ -286,13 +205,13 @@ void drawBoundingBoxes(cv::Mat& frame, const std::vector<Detection>& detections,
         cv::rectangle(frame, box, color, 2);
 
         // Prepare label with ID and class name
-        std::string label = cv::format("ID: %d | %.2f", id, detection.confidence);
-        label = classNames[targetClasses[detection.classId]] + ": " + label;
+        //std::string label = cv::format("ID: %d | %.2f", id, detection.confidence);
+        //label = classNames[targetClasses[detection.classId]] + ": " + label;
 
         // Calculate position for label
-        int baseLine;
-        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-        int top = std::max(box.y, labelSize.height);
-        cv::putText(frame, label, cv::Point(box.x, top), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+        //int baseLine;
+        //cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+        //int top = std::max(box.y, labelSize.height);
+        //cv::putText(frame, label, cv::Point(box.x, top), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
     }
 }
